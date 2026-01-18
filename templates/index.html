@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bumble Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">🐝 Bumble</a>
+        <div class="navbar-menu">
+            <a href="/" class="navbar-link active">Monitor</a>
+            <a href="/matches" class="navbar-link">Matches</a>
+            <a href="/historial" class="navbar-link">Historial</a>
+            <a href="/stats" class="navbar-link">Estadísticas</a>
+        </div>
+        <div class="navbar-status" id="navbarStatus">
+            <span class="status-dot offline" id="navStatusDot"></span>
+            <span class="status-text" id="navStatusText">Monitor: Detenido</span>
+        </div>
+    </nav>
+    
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="profile-section">
+                    <div class="profile-avatar">M</div>
+                    <div class="profile-name">Monitor</div>
+                </div>
+                <button class="filters-btn">
+                    ⚙️ Filtros
+                </button>
+            </div>
+
+            <div class="matches-section">
+                <div class="section-title">
+                    <span class="tab-btn active" data-tab="matches">Matches (<span id="matchesCount">0</span>)</span>
+                    <span class="tab-btn" data-tab="history">Historial (<span id="historyCount">0</span>)</span>
+                </div>
+                <div class="matches-list tab-content active" id="matchesList" data-tab="matches">
+                    <!-- Matches dinámicos -->
+                </div>
+                <div class="bubbles-grid tab-content" id="historyList" data-tab="history" style="display:none;">
+                    <!-- Historial dinámico en formato burbujas -->
+                </div>
+            </div>
+
+            <div class="conversations-section">
+                <div class="conversations-header">
+                    <div class="section-title" style="margin: 0;">Conversaciones (Recientes)</div>
+                </div>
+                <div id="conversationsList">
+                    <!-- Conversaciones dinámicas -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="header">
+                <div class="logo">bumble</div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="statusDot"></div>
+                    <div class="status-text" id="statusText">Detenido</div>
+                </div>
+            </div>
+
+            <div class="controls-bar">
+                <button class="btn-primary" id="startBtn" onclick="startMonitoring()">
+                    ▶ Iniciar Monitoreo
+                </button>
+                <button class="btn-danger" id="stopBtn" onclick="stopMonitoring()" disabled>
+                    ⏸ Detener
+                </button>
+                <button class="btn-success" id="enrichBtn" onclick="enrichProfiles()" disabled>
+                    🔍 Obtener Datos Completos
+                </button>
+                <button class="btn-secondary" onclick="clearData()">
+                    🗑 Limpiar
+                </button>
+                <button class="btn-secondary" onclick="resetCookies()">
+                    🔄 Resetear Sesión
+                </button>
+            </div>
+            
+            <div class="autolike-controls" style="padding: 15px; background: #FFF9E6; border-radius: 12px; margin: 0 30px 20px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-weight: 600; font-size: 14px;">🤖 AutoLike</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="autolikeToggle" onchange="toggleAutolike()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span id="autolikeStatus" style="font-size: 13px; color: #65676B;">Desactivado</span>
+                    </div>
+                    <div style="font-size: 13px; font-weight: 600; color: #FFD700;">
+                        <span id="autolikeCount">0</span> likes enviados
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label style="font-size: 13px; color: #65676B;">Delay:</label>
+                    <input type="number" id="autolikeDelay" value="3" min="1" max="10" 
+                           style="width: 60px; padding: 6px; border: 1px solid #E8E8E8; border-radius: 6px;" />
+                    <span style="font-size: 13px; color: #65676B;">segundos</span>
+                    <button onclick="doManualLike()" class="btn-secondary" style="margin-left: auto; padding: 6px 12px; font-size: 13px;">
+                        👍 Like Manual
+                    </button>
+                </div>
+            </div>
+
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <div class="stat-icon">💛</div>
+                    <div class="stat-info">
+                        <div class="stat-label">Te dieron Like</div>
+                        <div class="stat-value" id="totalLikes">0</div>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-icon">⏱️</div>
+                    <div class="stat-info">
+                        <div class="stat-label">Tiempo Activo</div>
+                        <div class="stat-value" id="elapsedTime">00:00:00</div>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-icon">🤖</div>
+                    <div class="stat-info">
+                        <div class="stat-label">AutoLikes</div>
+                        <div class="stat-value" id="autolikeCount">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-area">
+                <div class="likes-section">
+                    <div class="likes-header">
+                        <div class="likes-title">Personas que te dieron like</div>
+                        <div class="likes-subtitle">Descubre quién está interesado en ti</div>
+                    </div>
+                    <div class="likes-grid" id="likesGrid">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">💛</div>
+                            <div class="empty-state-title">¡Esto es todo por hoy!</div>
+                            <div class="empty-state-text">
+                                Inicia el monitoreo para ver quién te dio like
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="activity-panel">
+                    <div class="activity-header">
+                        <div class="activity-title">Actividad del Monitor</div>
+                    </div>
+                    <div class="activity-log" id="activityLog">
+                        <!-- Logs dinámicos -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de perfil -->
+    <div class="modal-overlay" id="profileModal">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title">Perfil</div>
+                <button class="modal-close" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-profile-image">
+                    <img src="" alt="Profile" id="modalImage" />
+                    <div class="modal-profile-placeholder" id="modalPlaceholder" style="display:none;">👤</div>
+                </div>
+                <div class="modal-info">
+                    <div class="modal-name-section">
+                        <div class="modal-name" id="modalName">-</div>
+                        <div class="modal-age" id="modalAge">-</div>
+                    </div>
+                    <div class="modal-badges-section" id="modalBadges">
+                        <!-- Badges dinámicos -->
+                    </div>
+                    <div class="modal-details-section">
+                        <div class="modal-detail-item" id="modalLocationItem">
+                            <div class="modal-detail-icon">📍</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Ubicación</div>
+                                <div class="modal-detail-value" id="modalLocation">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item" id="modalDistanceItem">
+                            <div class="modal-detail-icon">📏</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Distancia</div>
+                                <div class="modal-detail-value" id="modalDistance">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item" id="modalHeightItem">
+                            <div class="modal-detail-icon">📐</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Altura</div>
+                                <div class="modal-detail-value" id="modalHeight">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item" id="modalEducationItem">
+                            <div class="modal-detail-icon">🎓</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Educación</div>
+                                <div class="modal-detail-value" id="modalEducation">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item" id="modalPoliticsItem">
+                            <div class="modal-detail-icon">🗳️</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Política</div>
+                                <div class="modal-detail-value" id="modalPolitics">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item" id="modalReligionItem">
+                            <div class="modal-detail-icon">✝️</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Religión</div>
+                                <div class="modal-detail-value" id="modalReligion">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item" id="modalZodiacItem">
+                            <div class="modal-detail-icon">♈</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Signo</div>
+                                <div class="modal-detail-value" id="modalZodiac">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item" id="modalLifestyleItem">
+                            <div class="modal-detail-icon">🏃</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Estilo de Vida</div>
+                                <div class="modal-detail-value" id="modalLifestyle">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item" id="modalInterestsItem">
+                            <div class="modal-detail-icon">💡</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Intereses</div>
+                                <div class="modal-detail-value" id="modalInterests" style="font-size: 12px;">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item">
+                            <div class="modal-detail-icon">🕐</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Detectado</div>
+                                <div class="modal-detail-value" id="modalTimestamp">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item">
+                            <div class="modal-detail-icon">💬</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">Estado</div>
+                                <div class="modal-detail-value" id="modalStatus">-</div>
+                            </div>
+                        </div>
+                        <div class="modal-detail-item">
+                            <div class="modal-detail-icon">🆔</div>
+                            <div class="modal-detail-content">
+                                <div class="modal-detail-label">ID de Usuario</div>
+                                <div class="modal-detail-value" id="modalUserId" style="font-size: 11px; word-break: break-all;">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-action-btn modal-action-primary" onclick="copyUserId()">
+                    📋 Copiar ID
+                </button>
+                <button class="modal-action-btn modal-action-secondary" onclick="closeModal()">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let users = [];
+        let history = [];
+        let currentUser = null;
+
+        // Funciones del Modal
+        function openModal(user) {
+            currentUser = user;
+            const modal = document.getElementById('profileModal');
+            if (!modal) {
+                console.error('❌ Modal no encontrado');
+                return;
+            }
+            
+            console.log('✅ Abriendo modal para:', user.display_name);
+            
+            // Actualizar imagen
+            const modalImage = document.getElementById('modalImage');
+            const modalPlaceholder = document.getElementById('modalPlaceholder');
+            
+            if (user.photo) {
+                modalImage.src = user.photo;
+                modalImage.style.display = 'block';
+                modalPlaceholder.style.display = 'none';
+            } else {
+                modalImage.style.display = 'none';
+                modalPlaceholder.textContent = user.display_name[0];
+                modalPlaceholder.style.display = 'flex';
+            }
+            
+            // Actualizar nombre y edad
+            document.getElementById('modalName').textContent = user.display_name;
+            document.getElementById('modalAge').textContent = `${user.age} años`;
+            
+            // Actualizar badges
+            const badgesContainer = document.getElementById('modalBadges');
+            badgesContainer.innerHTML = '';
+            
+            if (user.has_voted) {
+                badgesContainer.innerHTML += '<span class="modal-badge badge-voted">✅ Ya votaste</span>';
+            } else {
+                badgesContainer.innerHTML += '<span class="modal-badge badge-not-voted">👀 Nuevo</span>';
+            }
+            
+            if (user.is_verified) {
+                badgesContainer.innerHTML += '<span class="modal-badge badge-voted">✓ Verificado</span>';
+            }
+            
+            if (user.online_status === 1) {
+                badgesContainer.innerHTML += '<span class="modal-badge" style="background: #E8F5E9; color: #2E7D32;">🟢 Online</span>';
+            }
+            
+            if (user.instagram_connected) {
+                badgesContainer.innerHTML += '<span class="modal-badge" style="background: #FFF0F6; color: #E91E63;">📷 Instagram</span>';
+            }
+            
+            if (user.spotify_track) {
+                badgesContainer.innerHTML += '<span class="modal-badge" style="background: #E8F5E9; color: #1DB954;">🎵 Spotify</span>';
+            }
+            
+            badgesContainer.innerHTML += `<span class="modal-badge badge-time">🕐 ${user.timestamp}</span>`;
+            
+            // Actualizar ubicación y distancia
+            const locationItem = document.getElementById('modalLocationItem');
+            const distanceItem = document.getElementById('modalDistanceItem');
+            
+            if (user.city || user.country) {
+                const location = [user.city, user.country].filter(x => x).join(', ');
+                document.getElementById('modalLocation').textContent = location;
+                locationItem.style.display = 'flex';
+            } else {
+                locationItem.style.display = 'none';
+            }
+            
+            if (user.distance_short) {
+                document.getElementById('modalDistance').textContent = user.distance_short;
+                distanceItem.style.display = 'flex';
+            } else {
+                distanceItem.style.display = 'none';
+            }
+            
+            // Altura
+            const heightItem = document.getElementById('modalHeightItem');
+            if (user.height) {
+                document.getElementById('modalHeight').textContent = user.height;
+                heightItem.style.display = 'flex';
+            } else {
+                heightItem.style.display = 'none';
+            }
+            
+            // Educación
+            const educationItem = document.getElementById('modalEducationItem');
+            if (user.education) {
+                document.getElementById('modalEducation').textContent = user.education;
+                educationItem.style.display = 'flex';
+            } else {
+                educationItem.style.display = 'none';
+            }
+            
+            // Política
+            const politicsItem = document.getElementById('modalPoliticsItem');
+            if (user.politics) {
+                document.getElementById('modalPolitics').textContent = user.politics;
+                politicsItem.style.display = 'flex';
+            } else {
+                politicsItem.style.display = 'none';
+            }
+            
+            // Religión
+            const religionItem = document.getElementById('modalReligionItem');
+            if (user.religion) {
+                document.getElementById('modalReligion').textContent = user.religion;
+                religionItem.style.display = 'flex';
+            } else {
+                religionItem.style.display = 'none';
+            }
+            
+            // Zodíaco
+            const zodiacItem = document.getElementById('modalZodiacItem');
+            if (user.zodiac) {
+                document.getElementById('modalZodiac').textContent = user.zodiac;
+                zodiacItem.style.display = 'flex';
+            } else {
+                zodiacItem.style.display = 'none';
+            }
+            
+            // Estilo de vida (ejercicio, fumar, beber, mascotas)
+            const lifestyleItem = document.getElementById('modalLifestyleItem');
+            const lifestyle = [];
+            if (user.exercise) lifestyle.push(`Ejercicio: ${user.exercise}`);
+            if (user.smoking) lifestyle.push(`Fumar: ${user.smoking}`);
+            if (user.drinking) lifestyle.push(`Beber: ${user.drinking}`);
+            if (user.pets) lifestyle.push(`Mascotas: ${user.pets}`);
+            
+            if (lifestyle.length > 0) {
+                document.getElementById('modalLifestyle').innerHTML = lifestyle.join('<br>');
+                lifestyleItem.style.display = 'flex';
+            } else {
+                lifestyleItem.style.display = 'none';
+            }
+            
+            // Intereses
+            const interestsItem = document.getElementById('modalInterestsItem');
+            if (user.interests && user.interests.length > 0) {
+                const interestsList = user.interests.slice(0, 10).join(', ');
+                document.getElementById('modalInterests').textContent = interestsList;
+                interestsItem.style.display = 'flex';
+            } else {
+                interestsItem.style.display = 'none';
+            }
+            
+            // Detalles básicos
+            document.getElementById('modalUserId').textContent = user.id;
+            document.getElementById('modalTimestamp').textContent = user.timestamp;
+            
+            let statusText = user.has_voted ? 'Ya votaste' : 'Nuevo';
+            if (user.online_status === 1) statusText += ' • Online';
+            document.getElementById('modalStatus').textContent = statusText;
+            
+            // Mostrar modal
+            modal.classList.add('active');
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('profileModal');
+            modal.classList.remove('active');
+            currentUser = null;
+        }
+
+        function copyUserId() {
+            if (currentUser && currentUser.id) {
+                navigator.clipboard.writeText(currentUser.id).then(() => {
+                    const btn = event.target;
+                    const originalText = btn.textContent;
+                    btn.textContent = '✅ Copiado!';
+                    btn.disabled = true;
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.disabled = false;
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Error al copiar:', err);
+                });
+            }
+        }
+
+        // Event listeners para el modal
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('🎬 Inicializando event listeners del modal...');
+            const modal = document.getElementById('profileModal');
+            if (!modal) {
+                console.error('❌ Modal no encontrado en el DOM');
+                return;
+            }
+            
+            // Cerrar al hacer clic fuera del contenido
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    closeModal();
+                }
+            };
+            
+            // Cerrar con tecla ESC
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && modal.classList.contains('active')) {
+                    closeModal();
+                }
+            });
+        });
+
+        // Conexión establecida
+        socket.on('connect', () => {
+            console.log('Conectado al servidor');
+            addLog('Sistema conectado', 'success');
+        });
+
+        // Estado inicial al conectar
+        socket.on('initial_state', (data) => {
+            const navStatusDot = document.getElementById('navStatusDot');
+            const navStatusText = document.getElementById('navStatusText');
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const enrichBtn = document.getElementById('enrichBtn');
+            
+            if (data.is_running) {
+                statusDot.classList.add('active');
+                statusText.textContent = 'Monitoreando';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                enrichBtn.disabled = false;
+                
+                if (navStatusDot) {
+                    navStatusDot.classList.remove('offline');
+                    navStatusDot.classList.add('online');
+                }
+                if (navStatusText) navStatusText.textContent = 'Monitor: Activo';
+            }
+        });
+
+        // Actualizar estado
+        socket.on('status_update', (data) => {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const enrichBtn = document.getElementById('enrichBtn');
+            
+            // También actualizar el navbar status
+            const navStatusDot = document.getElementById('navStatusDot');
+            const navStatusText = document.getElementById('navStatusText');
+
+            if (data.status === 'running' || data.status === 'starting' || data.status === 'monitoring') {
+                statusDot.classList.add('active');
+                statusText.textContent = 'Monitoreando';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                enrichBtn.disabled = false;
+                
+                // Navbar status
+                if (navStatusDot) {
+                    navStatusDot.classList.remove('offline');
+                    navStatusDot.classList.add('online');
+                }
+                if (navStatusText) navStatusText.textContent = 'Monitor: Activo';
+            } else {
+                statusDot.classList.remove('active');
+                statusText.textContent = 'Detenido';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                enrichBtn.disabled = true;
+                
+                // Navbar status
+                if (navStatusDot) {
+                    navStatusDot.classList.remove('online');
+                    navStatusDot.classList.add('offline');
+                }
+                if (navStatusText) navStatusText.textContent = 'Monitor: Detenido';
+            }
+        });
+
+        // Eventos de enriquecimiento
+        socket.on('enrich_started', (data) => {
+            addLog(`🔍 Iniciando enriquecimiento de ${data.total} perfiles...`, 'info');
+        });
+
+        socket.on('enrich_progress', (data) => {
+            const enrichBtn = document.getElementById('enrichBtn');
+            enrichBtn.textContent = `⏳ ${data.current}/${data.total} - ${data.name}`;
+            addLog(`📂 [${data.current}/${data.total}] Procesando ${data.name}...`, 'info');
+        });
+
+        socket.on('enrich_complete', (data) => {
+            const enrichBtn = document.getElementById('enrichBtn');
+            enrichBtn.disabled = false;
+            enrichBtn.textContent = '🔍 Obtener Datos Completos';
+            addLog(`✅ Enriquecimiento completado: ${data.completed}/${data.total} perfiles actualizados`, 'success');
+            
+            // Recargar historial
+            socket.emit('get_history');
+        });
+
+        socket.on('enrich_error', (data) => {
+            const enrichBtn = document.getElementById('enrichBtn');
+            enrichBtn.disabled = false;
+            enrichBtn.textContent = '🔍 Obtener Datos Completos';
+            addLog(`❌ Error en enriquecimiento: ${data.error}`, 'error');
+        });
+
+        // Nuevo mensaje de log
+        socket.on('log', (data) => {
+            addLog(data.message, data.type);
+        });
+
+        // Nuevo usuario
+        socket.on('new_user', (user) => {
+            users.push(user);
+            addLikeCard(user);
+            addConversation(user);
+            updateMatchesList();
+        });
+
+        // Actualizar estadísticas
+        socket.on('stats_update', (data) => {
+            document.getElementById('totalLikes').textContent = data.total;
+            document.getElementById('elapsedTime').textContent = data.elapsed_time;
+            document.getElementById('matchesCount').textContent = data.total;
+        });
+
+        // Lista de usuarios
+        socket.on('users_list', (data) => {
+            users = data.users;
+            renderLikes();
+            renderConversations();
+        });
+
+        // Datos limpiados
+        socket.on('data_cleared', () => {
+            users = [];
+            history = [];
+            renderLikes();
+            renderConversations();
+            renderHistory();
+        });
+
+        // Cookies reseteadas
+        socket.on('cookies_reset', (data) => {
+            if (data.success) {
+                alert('Sesión eliminada correctamente. Necesitarás iniciar sesión nuevamente.');
+            } else {
+                alert(data.message || 'No hay sesión guardada');
+            }
+        });
+
+        // Ubicación cambiada
+        function addLog(message, type = 'info') {
+            const activityLog = document.getElementById('activityLog');
+            const timestamp = new Date().toLocaleTimeString('es-ES');
+            
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            
+            // Limpiar mensaje de emojis duplicados si ya lo tiene
+            const cleanMessage = message.replace(/^[\u{1F300}-\u{1F9FF}]\s*/u, '');
+            
+            entry.innerHTML = `
+                <div class="log-time">${timestamp}</div>
+                <div class="log-message">${cleanMessage}</div>
+            `;
+            
+            activityLog.insertBefore(entry, activityLog.firstChild);
+            
+            // Mantener solo los últimos 100 logs
+            while (activityLog.children.length > 100) {
+                activityLog.removeChild(activityLog.lastChild);
+            }
+            
+            // Auto-scroll si está cerca del inicio
+            if (activityLog.scrollTop < 100) {
+                activityLog.scrollTop = 0;
+            }
+        }
+
+        function addLikeCard(user) {
+            const likesGrid = document.getElementById('likesGrid');
+            
+            // Remover empty state si existe
+            const emptyState = likesGrid.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const card = document.createElement('div');
+            card.className = 'like-card';
+            card.onclick = () => openModal(user);
+            
+            const imageHtml = user.photo 
+                ? `<div class="like-card-image">
+                     <img src="${user.photo}" alt="${user.display_name}" 
+                          onerror="this.style.display='none'; this.parentElement.classList.add('like-card-placeholder');">
+                   </div>`
+                : `<div class="like-card-placeholder"></div>`;
+            
+            const votedBadge = user.has_voted 
+                ? '<span class="badge badge-voted">✅ Match</span>'
+                : '<span class="badge badge-not-voted">💛 Nuevo</span>';
+            
+            // Mostrar ubicación si está disponible
+            const locationParts = [];
+            if (user.city) locationParts.push(user.city);
+            if (user.distance_short) locationParts.push(user.distance_short);
+            const locationInfo = locationParts.length > 0 
+                ? `<div class="like-card-location">📍 ${locationParts.join(' • ')}</div>`
+                : '';
+            
+            // Verificado badge
+            const verifiedBadge = user.is_verified ? '<span class="badge badge-verified">✓ Verificada</span>' : '';
+            
+            // Online badge
+            const onlineBadge = user.online_status === 1 ? '<span class="badge badge-online">🟢</span>' : '';
+            
+            card.innerHTML = `
+                ${imageHtml}
+                <div class="like-card-info">
+                    <div class="like-card-name">${user.display_name}</div>
+                    <div class="like-card-age">${user.age} años</div>
+                    ${locationInfo}
+                    <div class="like-card-badges">
+                        ${votedBadge}
+                        ${verifiedBadge}
+                        ${onlineBadge}
+                    </div>
+                </div>
+            `;
+            
+            likesGrid.insertBefore(card, likesGrid.firstChild);
+        }
+
+        function addConversation(user) {
+            const conversationsList = document.getElementById('conversationsList');
+            
+            const item = document.createElement('div');
+            item.className = 'conversation-item';
+            
+            const avatarHtml = user.photo
+                ? `<div class="conversation-avatar">
+                     <img src="${user.photo}" alt="${user.display_name}">
+                   </div>`
+                : `<div class="conversation-avatar" style="background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
+                     ${user.display_name.charAt(0)}
+                   </div>`;
+            
+            const badge = !user.has_voted ? '<span class="your-turn-badge">Tu turno</span>' : '';
+            
+            item.innerHTML = `
+                ${avatarHtml}
+                <div class="conversation-info">
+                    <div class="conversation-name">${user.display_name}</div>
+                    <div class="conversation-message">Detectado a las ${user.timestamp.split(' ')[0]}</div>
+                </div>
+                ${badge}
+            `;
+            
+            conversationsList.insertBefore(item, conversationsList.firstChild);
+            
+            // Mantener solo las últimas 10 conversaciones
+            while (conversationsList.children.length > 10) {
+                conversationsList.removeChild(conversationsList.lastChild);
+            }
+        }
+
+        function updateMatchesList() {
+            const matchesList = document.getElementById('matchesList');
+            matchesList.innerHTML = '';
+            
+            if (users.length === 0) {
+                matchesList.innerHTML = '<div style="padding: 20px; text-align: center; color: #65676B; font-size: 13px;">Sin matches aún</div>';
+                document.getElementById('matchesCount').textContent = 0;
+                return;
+            }
+            
+            // Mostrar todos los usuarios
+            users.forEach(user => {
+                const item = document.createElement('div');
+                item.className = 'match-item';
+                item.onclick = () => openModal(user);
+                
+                const photo = user.photo 
+                    ? `<img src="${user.photo}" alt="${user.display_name}" class="match-avatar-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />`
+                    : '';
+                
+                item.innerHTML = `
+                    <div class="match-avatar-wrapper">
+                        ${photo}
+                        <div class="match-avatar-placeholder" style="${user.photo ? 'display:none;' : ''}">
+                            ${user.display_name[0]}
+                        </div>
+                    </div>
+                    <div class="match-info">
+                        <div class="match-name">${user.display_name}</div>
+                        <div class="match-preview">${user.age} años</div>
+                    </div>
+                    ${!user.has_voted ? '<div class="match-badge-new">Nuevo</div>' : ''}
+                `;
+                
+                matchesList.appendChild(item);
+            });
+            
+            document.getElementById('matchesCount').textContent = users.length;
+        }
+
+        function renderHistory() {
+            const historyList = document.getElementById('historyList');
+            historyList.innerHTML = '';
+            
+            if (history.length === 0) {
+                historyList.innerHTML = '<div style="padding: 20px; text-align: center; color: #65676B; grid-column: 1/-1;">Sin historial</div>';
+                document.getElementById('historyCount').textContent = 0;
+                return;
+            }
+            
+            history.forEach(user => {
+                const bubble = document.createElement('div');
+                bubble.className = 'bubble-item';
+                bubble.onclick = () => openModal(user);
+                
+                if (user.photo) {
+                    bubble.innerHTML = `<img src="${user.photo}" alt="${user.display_name}" class="bubble-avatar" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                                       <div class="bubble-avatar-placeholder" style="display:none;">${user.display_name[0]}</div>
+                                       <div class="bubble-name">${user.display_name}</div>`;
+                } else {
+                    bubble.innerHTML = `<div class="bubble-avatar-placeholder">${user.display_name[0]}</div>
+                                       <div class="bubble-name">${user.display_name}</div>`;
+                }
+                
+                historyList.appendChild(bubble);
+            });
+            
+            document.getElementById('historyCount').textContent = history.length;
+        }
+
+        function renderLikes() {
+            const likesGrid = document.getElementById('likesGrid');
+            likesGrid.innerHTML = '';
+            
+            if (users.length === 0) {
+                likesGrid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">💛</div>
+                        <div class="empty-state-title">¡Esto es todo por hoy!</div>
+                        <div class="empty-state-text">
+                            Inicia el monitoreo para detectar likes
+                        </div>
+                    </div>
+                `;
+            } else {
+                users.slice().reverse().forEach(user => {
+                    addLikeCard(user);
+                });
+            }
+        }
+
+        function renderConversations() {
+            const conversationsList = document.getElementById('conversationsList');
+            conversationsList.innerHTML = '';
+            
+            users.slice().reverse().slice(0, 10).forEach(user => {
+                addConversation(user);
+            });
+            
+            updateMatchesList();
+        }
+
+        function startMonitoring() {
+            socket.emit('start_monitoring');
+            addLog('Iniciando monitoreo...', 'info');
+        }
+
+        function stopMonitoring() {
+            socket.emit('stop_monitoring');
+            addLog('Deteniendo monitoreo...', 'warning');
+        }
+
+        function enrichProfiles() {
+            if (confirm('Esto abrirá cada perfil para obtener datos completos (intereses, educación, etc.). Puede tomar varios minutos. ¿Continuar?')) {
+                socket.emit('enrich_profiles');
+                addLog('🔍 Iniciando enriquecimiento de perfiles...', 'info');
+                document.getElementById('enrichBtn').disabled = true;
+                document.getElementById('enrichBtn').textContent = '⏳ Enriqueciendo...';
+            }
+        }
+
+        function clearData() {
+            if (confirm('¿Estás seguro de que quieres limpiar todos los datos?')) {
+                socket.emit('clear_data');
+            }
+        }
+
+        function resetCookies() {
+            if (confirm('Esto eliminará tu sesión guardada y tendrás que iniciar sesión nuevamente. ¿Continuar?')) {
+                socket.emit('reset_cookies');
+            }
+        }
+        
+        // Funciones de pestañas
+        document.addEventListener('DOMContentLoaded', () => {
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tabName = btn.getAttribute('data-tab');
+                    
+                    // Cambiar tab activo
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    
+                    // Mostrar contenido correspondiente
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        if (content.getAttribute('data-tab') === tabName) {
+                            content.style.display = tabName === 'history' ? 'grid' : 'block';
+                            content.classList.add('active');
+                        } else {
+                            content.style.display = 'none';
+                            content.classList.remove('active');
+                        }
+                    });
+                    
+                    // Si cambiamos a historial, pedirlo al servidor
+                    if (tabName === 'history') {
+                        socket.emit('get_history');
+                    }
+                });
+            });
+        });
+        
+        // Funciones de Autolike
+        function toggleAutolike() {
+            const enabled = document.getElementById('autolikeToggle').checked;
+            const delay = parseInt(document.getElementById('autolikeDelay').value) || 3;
+            
+            socket.emit('toggle_autolike', { enabled, delay });
+            
+            const statusText = enabled ? 'Activado' : 'Desactivado';
+            document.getElementById('autolikeStatus').textContent = statusText;
+            document.getElementById('autolikeStatus').style.color = enabled ? '#00D95F' : '#65676B';
+        }
+        
+        function doManualLike() {
+            socket.emit('do_autolike');
+            addLog('Enviando like manual...', 'info');
+        }
+        
+        // Recibir estado de autolike
+        socket.on('autolike_status', (data) => {
+            document.getElementById('autolikeToggle').checked = data.enabled;
+            document.getElementById('autolikeDelay').value = data.delay;
+            document.getElementById('autolikeCount').textContent = data.count;
+            
+            const statusText = data.enabled ? 'Activado' : 'Desactivado';
+            document.getElementById('autolikeStatus').textContent = statusText;
+            document.getElementById('autolikeStatus').style.color = data.enabled ? '#00D95F' : '#65676B';
+        });
+        
+        // Recibir historial
+        socket.on('history_list', (data) => {
+            history = data.history;
+            renderHistory();
+        });
+        
+        // Actualizar contador de historial
+        socket.on('history_update', (data) => {
+            document.getElementById('historyCount').textContent = data.total;
+        });
+
+        // Inicializar
+        addLog('Sistema iniciado - Listo para monitorear', 'info');
+        addLog('Presiona "Iniciar Monitoreo" para comenzar', 'info');
+    </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+<!-- Match Item Component -->
+<div class="match-item" onclick="openModal({{ user|tojson }})">
+    <div class="match-avatar-wrapper">
+        {% if user.photo %}
+        <img src="{{ user.photo }}" alt="{{ user.display_name }}" class="match-avatar-img" 
+             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        {% endif %}
+        <div class="match-avatar-placeholder" {% if user.photo %}style="display:none;"{% endif %}>
+            {{ user.display_name[0] }}
+        </div>
+    </div>
+    <div class="match-info">
+        <div class="match-name">{{ user.display_name }}</div>
+        <div class="match-preview">{{ user.age }} años</div>
+    </div>
+    {% if not user.has_voted %}
+    <div class="match-badge-new">Nuevo</div>
+    {% endif %}
+</div>

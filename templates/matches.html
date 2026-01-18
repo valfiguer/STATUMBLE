@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matches - Bumble Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        .matches-page {
+            padding: 30px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        
+        .page-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1D2129;
+        }
+        
+        .page-subtitle {
+            font-size: 14px;
+            color: #65676B;
+            margin-top: 5px;
+        }
+        
+        .matches-stats {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        
+        .stat-card-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #FFD700;
+        }
+        
+        .stat-card-label {
+            font-size: 12px;
+            color: #65676B;
+            margin-top: 5px;
+        }
+        
+        .matches-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 24px;
+        }
+        
+        .match-card {
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .match-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 32px rgba(0,0,0,0.15);
+        }
+        
+        .match-card-image {
+            width: 100%;
+            height: 0;
+            padding-bottom: 100%;
+            position: relative;
+            background: linear-gradient(135deg, #f0f0f0, #e0e0e0);
+        }
+        
+        .match-card-image img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .match-card-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            padding: 60px 16px 16px;
+            color: white;
+        }
+        
+        .match-card-name {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        
+        .match-card-age {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .match-card-badges {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .match-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .match-badge-verified {
+            background: rgba(25, 118, 210, 0.3);
+        }
+        
+        .match-badge-online {
+            background: rgba(76, 175, 80, 0.3);
+        }
+        
+        .match-card-info {
+            padding: 16px;
+            background: white;
+        }
+        
+        .match-card-location {
+            font-size: 13px;
+            color: #65676B;
+            margin-bottom: 8px;
+        }
+        
+        .match-card-interests {
+            font-size: 12px;
+            color: #1877F2;
+        }
+        
+        .empty-matches {
+            text-align: center;
+            padding: 60px 20px;
+            color: #65676B;
+        }
+        
+        .empty-matches-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        
+        .search-bar {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .search-input {
+            flex: 1;
+            padding: 12px 20px;
+            border: 1px solid #E8E8E8;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        
+        .search-input:focus {
+            border-color: #FFD700;
+        }
+        
+        .filter-btn {
+            padding: 12px 24px;
+            background: #F5F5F5;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        
+        .filter-btn:hover {
+            background: #E8E8E8;
+        }
+        
+        .filter-btn.active {
+            background: #FFD700;
+            color: #1D2129;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">🐝 Bumble</a>
+        <div class="navbar-menu">
+            <a href="/" class="navbar-link">Monitor</a>
+            <a href="/matches" class="navbar-link active">Matches</a>
+            <a href="/historial" class="navbar-link">Historial</a>
+            <a href="/stats" class="navbar-link">Estadísticas</a>
+        </div>
+        <div class="navbar-status" id="monitorStatus">
+            <span class="status-dot offline"></span>
+            <span class="status-text">Monitor: Detenido</span>
+        </div>
+    </nav>
+
+    <div class="matches-page">
+        <div class="page-header">
+            <div>
+                <div class="page-title">💕 Tus Matches</div>
+                <div class="page-subtitle">Personas con las que hiciste match</div>
+            </div>
+            <div class="matches-stats">
+                <div class="stat-card">
+                    <div class="stat-card-value" id="totalMatches">0</div>
+                    <div class="stat-card-label">Total Matches</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-value" id="verifiedMatches">0</div>
+                    <div class="stat-card-label">Verificadas</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-value" id="onlineMatches">0</div>
+                    <div class="stat-card-label">Online Ahora</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="search-bar">
+            <input type="text" class="search-input" id="searchInput" placeholder="🔍 Buscar por nombre, ciudad...">
+            <button class="filter-btn" onclick="filterAll()">Todos</button>
+            <button class="filter-btn" onclick="filterVerified()">✓ Verificadas</button>
+            <button class="filter-btn" onclick="filterOnline()">🟢 Online</button>
+            <button class="filter-btn" onclick="filterRecent()">🕐 Recientes</button>
+        </div>
+
+        <div class="matches-grid" id="matchesGrid">
+            <div class="empty-matches">
+                <div class="empty-matches-icon">💕</div>
+                <div>Cargando matches...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="profileModal">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title">Perfil</div>
+                <button class="modal-close" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-profile-image">
+                    <img src="" alt="Profile" id="modalImage" />
+                </div>
+                <div class="modal-info">
+                    <div class="modal-name-section">
+                        <div class="modal-name" id="modalName">-</div>
+                        <div class="modal-age" id="modalAge">-</div>
+                    </div>
+                    <div id="modalDetails"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let allMatches = [];
+        let filteredMatches = [];
+
+        socket.on('connect', () => {
+            console.log('Connected');
+            socket.emit('get_matches');
+        });
+
+        socket.on('matches_data', (data) => {
+            allMatches = data.matches || [];
+            filteredMatches = [...allMatches];
+            updateStats();
+            renderMatches();
+        });
+
+        // Escuchar nuevos usuarios en tiempo real (matches tienen has_voted=1)
+        socket.on('new_user', (user) => {
+            if (user.has_voted) {
+                // Es un match nuevo
+                if (!allMatches.find(m => m.id === user.id)) {
+                    allMatches.unshift(user);
+                    filteredMatches = [...allMatches];
+                    updateStats();
+                    renderMatches();
+                    showNotification(`¡Nuevo match con ${user.display_name || user.name}!`);
+                }
+            }
+        });
+
+        // Estado del monitor
+        socket.on('status_update', (data) => {
+            updateMonitorStatus(data.status);
+        });
+
+        socket.on('initial_state', (data) => {
+            updateMonitorStatus(data.is_running ? 'running' : 'stopped');
+        });
+
+        function updateMonitorStatus(status) {
+            const statusDiv = document.getElementById('monitorStatus');
+            if (statusDiv) {
+                const isRunning = status === 'running' || status === 'monitoring';
+                statusDiv.innerHTML = `
+                    <span class="status-dot ${isRunning ? 'online' : 'offline'}"></span>
+                    <span class="status-text">Monitor: ${isRunning ? 'Activo' : 'Detenido'}</span>
+                `;
+            }
+        }
+
+        function showNotification(message) {
+            const notif = document.createElement('div');
+            notif.className = 'notification';
+            notif.textContent = message;
+            notif.style.cssText = 'position:fixed;top:80px;right:20px;background:#4CAF50;color:#fff;padding:12px 20px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:1000;animation:slideIn 0.3s ease;';
+            document.body.appendChild(notif);
+            setTimeout(() => notif.remove(), 3000);
+        }
+
+        function updateStats() {
+            document.getElementById('totalMatches').textContent = allMatches.length;
+            document.getElementById('verifiedMatches').textContent = allMatches.filter(m => m.is_verified).length;
+            document.getElementById('onlineMatches').textContent = allMatches.filter(m => m.online_status === 1).length;
+        }
+
+        function renderMatches() {
+            const grid = document.getElementById('matchesGrid');
+            grid.innerHTML = '';
+
+            if (filteredMatches.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-matches" style="grid-column: 1/-1;">
+                        <div class="empty-matches-icon">💕</div>
+                        <div>No hay matches para mostrar</div>
+                        <div style="font-size: 13px; margin-top: 10px;">Inicia el monitor para detectar matches</div>
+                    </div>
+                `;
+                return;
+            }
+
+            filteredMatches.forEach(match => {
+                const card = document.createElement('div');
+                card.className = 'match-card';
+                card.onclick = () => openModal(match);
+
+                const interests = match.interests && match.interests.length > 0 
+                    ? match.interests.slice(0, 3).join(', ') 
+                    : '';
+
+                const badges = [];
+                if (match.is_verified) badges.push('<span class="match-badge match-badge-verified">✓ Verificada</span>');
+                if (match.online_status === 1) badges.push('<span class="match-badge match-badge-online">🟢 Online</span>');
+
+                card.innerHTML = `
+                    <div class="match-card-image">
+                        ${match.photo ? `<img src="${match.photo}" alt="${match.display_name}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23FFD700%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2260%22 text-anchor=%22middle%22 font-size=%2250%22>👤</text></svg>'">` : ''}
+                        <div class="match-card-overlay">
+                            <div class="match-card-name">${match.display_name}</div>
+                            <div class="match-card-age">${match.age} años</div>
+                            <div class="match-card-badges">${badges.join('')}</div>
+                        </div>
+                    </div>
+                    <div class="match-card-info">
+                        ${match.city || match.distance_short ? `<div class="match-card-location">📍 ${[match.city, match.distance_short].filter(x=>x).join(' • ')}</div>` : ''}
+                        ${interests ? `<div class="match-card-interests">💡 ${interests}</div>` : ''}
+                    </div>
+                `;
+
+                grid.appendChild(card);
+            });
+        }
+
+        // Search functionality
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            filteredMatches = allMatches.filter(m => {
+                const searchStr = `${m.display_name} ${m.city || ''} ${m.age}`.toLowerCase();
+                return searchStr.includes(term);
+            });
+            renderMatches();
+        });
+
+        function filterAll() {
+            filteredMatches = [...allMatches];
+            renderMatches();
+            updateFilterButtons(0);
+        }
+
+        function filterVerified() {
+            filteredMatches = allMatches.filter(m => m.is_verified);
+            renderMatches();
+            updateFilterButtons(1);
+        }
+
+        function filterOnline() {
+            filteredMatches = allMatches.filter(m => m.online_status === 1);
+            renderMatches();
+            updateFilterButtons(2);
+        }
+
+        function filterRecent() {
+            filteredMatches = [...allMatches].slice(0, 20);
+            renderMatches();
+            updateFilterButtons(3);
+        }
+
+        function updateFilterButtons(activeIndex) {
+            document.querySelectorAll('.filter-btn').forEach((btn, i) => {
+                btn.classList.toggle('active', i === activeIndex);
+            });
+        }
+
+        function openModal(match) {
+            document.getElementById('modalImage').src = match.photo || '';
+            document.getElementById('modalName').textContent = match.display_name;
+            document.getElementById('modalAge').textContent = `${match.age} años`;
+            
+            let details = '';
+            if (match.city) details += `<p>📍 ${match.city}</p>`;
+            if (match.distance_short) details += `<p>📏 ${match.distance_short}</p>`;
+            if (match.interests && match.interests.length) details += `<p>💡 ${match.interests.join(', ')}</p>`;
+            document.getElementById('modalDetails').innerHTML = details;
+            
+            document.getElementById('profileModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('profileModal').classList.remove('active');
+        }
+
+        document.getElementById('profileModal').onclick = (e) => {
+            if (e.target.id === 'profileModal') closeModal();
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Historial - Bumble</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">🐝 Bumble</a>
+        <div class="navbar-menu">
+            <a href="/" class="navbar-link">Monitor</a>
+            <a href="/matches" class="navbar-link">Matches</a>
+            <a href="/historial" class="navbar-link active">Historial</a>
+            <a href="/stats" class="navbar-link">Estadísticas</a>
+        </div>
+        <div class="navbar-status" id="monitorStatus">
+            <span class="status-dot offline"></span>
+            <span class="status-text">Monitor: Detenido</span>
+        </div>
+    </nav>
+
+    <div class="history-container">
+        <!-- Header -->
+        <div class="history-header">
+            <div class="history-title">Historial Completo</div>
+            <div class="history-subtitle">Todas las personas que te han dado like</div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="history-stats">
+            <div class="stat-card">
+                <div class="stat-card-label">Te dieron Like</div>
+                <div class="stat-card-value" id="totalLikes">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-label">Nuevos Hoy</div>
+                <div class="stat-card-value" id="newToday">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-label">Con Intereses</div>
+                <div class="stat-card-value" id="withInterests">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-label">Verificados</div>
+                <div class="stat-card-value" id="verified">0</div>
+            </div>
+        </div>
+
+        <!-- Search and Filters -->
+        <div class="history-search">
+            <div class="search-bar">
+                <input type="text" class="search-input" id="searchInput" placeholder="🔍 Buscar por nombre, edad, ubicación...">
+            </div>
+            <div class="search-filters">
+                <select class="filter-select" id="filterAge">
+                    <option value="">Todas las edades</option>
+                    <option value="18-24">18-24</option>
+                    <option value="25-29">25-29</option>
+                    <option value="30-34">30-34</option>
+                    <option value="35-39">35-39</option>
+                    <option value="40+">40+</option>
+                </select>
+                <select class="filter-select" id="filterVerified">
+                    <option value="">Verificación</option>
+                    <option value="verified">Verificados</option>
+                    <option value="not-verified">No verificados</option>
+                </select>
+                <select class="filter-select" id="filterOnline">
+                    <option value="">Estado</option>
+                    <option value="online">En línea</option>
+                    <option value="offline">Desconectados</option>
+                </select>
+                <select class="filter-select" id="filterInterests">
+                    <option value="">Intereses</option>
+                    <option value="has-interests">Con intereses</option>
+                    <option value="no-interests">Sin intereses</option>
+                </select>
+                <select class="filter-select" id="filterInstagram">
+                    <option value="">Instagram</option>
+                    <option value="connected">Conectado</option>
+                    <option value="not-connected">No conectado</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="history-table">
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Foto</th>
+                            <th>Nombre</th>
+                            <th>Edad</th>
+                            <th>Ubicación</th>
+                            <th>Distancia</th>
+                            <th>Intereses</th>
+                            <th>Estado</th>
+                            <th>Detectado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        <!-- Rows dinámicas -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal" id="userModal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">×</button>
+            <div class="modal-body">
+                <div class="modal-profile">
+                    <div class="profile-photos">
+                        <img class="profile-photo-main" id="modalPhoto" src="" alt="Profile Photo">
+                    </div>
+                    <div class="profile-info">
+                        <div class="profile-basic">
+                            <h2 class="profile-name" id="modalName"></h2>
+                            <div class="profile-badges" id="modalBadges"></div>
+                            <div class="profile-details" id="modalDetails"></div>
+                        </div>
+                        <div class="profile-fields" id="modalFields"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let allUsers = [];
+        let filteredUsers = [];
+
+        // Load initial data
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            socket.emit('get_history');
+        });
+
+        socket.on('history_data', (data) => {
+            allUsers = data.users || [];
+            filteredUsers = [...allUsers];
+            updateStats();
+            renderTable();
+        });
+
+        // Escuchar nuevos usuarios en tiempo real
+        socket.on('new_user', (user) => {
+            // Verificar si ya existe
+            if (!allUsers.find(u => u.id === user.id)) {
+                allUsers.unshift(user);
+                filteredUsers = [...allUsers];
+                updateStats();
+                renderTable();
+                showNotification(`Nuevo like de ${user.display_name || user.name}`);
+            }
+        });
+
+        // Escuchar estado del monitor
+        socket.on('status_update', (data) => {
+            updateMonitorStatus(data.status);
+        });
+
+        socket.on('initial_state', (data) => {
+            updateMonitorStatus(data.is_running ? 'running' : 'stopped');
+        });
+
+        function updateMonitorStatus(status) {
+            const statusDiv = document.getElementById('monitorStatus');
+            if (statusDiv) {
+                const isRunning = status === 'running' || status === 'monitoring';
+                statusDiv.innerHTML = `
+                    <span class="status-dot ${isRunning ? 'online' : 'offline'}"></span>
+                    <span class="status-text">Monitor: ${isRunning ? 'Activo' : 'Detenido'}</span>
+                `;
+            }
+        }
+
+        function showNotification(message) {
+            const notif = document.createElement('div');
+            notif.className = 'notification';
+            notif.textContent = message;
+            notif.style.cssText = 'position:fixed;top:80px;right:20px;background:#FFD700;color:#000;padding:12px 20px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:1000;animation:slideIn 0.3s ease;';
+            document.body.appendChild(notif);
+            setTimeout(() => notif.remove(), 3000);
+        }
+
+        function updateStats() {
+            const today = new Date().toDateString();
+            const newToday = allUsers.filter(u => new Date(u.detected_at).toDateString() === today).length;
+            const withInterests = allUsers.filter(u => u.interests && u.interests.length > 0).length;
+            const verified = allUsers.filter(u => u.is_verified).length;
+
+            document.getElementById('totalLikes').textContent = allUsers.length;
+            document.getElementById('newToday').textContent = newToday;
+            document.getElementById('withInterests').textContent = withInterests;
+            document.getElementById('verified').textContent = verified;
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('historyTableBody');
+            tbody.innerHTML = '';
+
+            filteredUsers.forEach(user => {
+                const tr = document.createElement('tr');
+                tr.onclick = () => openModal(user);
+
+                // Avatar
+                const tdAvatar = document.createElement('td');
+                if (user.photo) {
+                    const img = document.createElement('img');
+                    img.src = user.photo;
+                    img.className = 'table-avatar';
+                    img.alt = user.name;
+                    tdAvatar.appendChild(img);
+                } else {
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'table-avatar-placeholder';
+                    placeholder.textContent = user.name ? user.name[0].toUpperCase() : '?';
+                    tdAvatar.appendChild(placeholder);
+                }
+                tr.appendChild(tdAvatar);
+
+                // Name
+                const tdName = document.createElement('td');
+                tdName.textContent = user.name || 'Desconocido';
+                tr.appendChild(tdName);
+
+                // Age
+                const tdAge = document.createElement('td');
+                tdAge.textContent = user.age || '-';
+                tr.appendChild(tdAge);
+
+                // Location
+                const tdLocation = document.createElement('td');
+                tdLocation.textContent = user.city || user.country || '-';
+                tr.appendChild(tdLocation);
+
+                // Distance
+                const tdDistance = document.createElement('td');
+                tdDistance.textContent = user.distance_short || '-';
+                tr.appendChild(tdDistance);
+
+                // Interests
+                const tdInterests = document.createElement('td');
+                const interests = user.interests ? (typeof user.interests === 'string' ? JSON.parse(user.interests) : user.interests) : [];
+                tdInterests.textContent = interests.length > 0 ? interests.slice(0, 2).join(', ') + (interests.length > 2 ? '...' : '') : '-';
+                tr.appendChild(tdInterests);
+
+                // Status
+                const tdStatus = document.createElement('td');
+                const badges = [];
+                if (user.is_verified) {
+                    const badge = document.createElement('span');
+                    badge.className = 'table-badge table-badge-verified';
+                    badge.textContent = '✓';
+                    badges.push(badge);
+                }
+                if (user.online_status) {
+                    const badge = document.createElement('span');
+                    badge.className = 'table-badge table-badge-online';
+                    badge.textContent = '●';
+                    badges.push(badge);
+                }
+                badges.forEach(b => {
+                    tdStatus.appendChild(b);
+                    tdStatus.appendChild(document.createTextNode(' '));
+                });
+                tr.appendChild(tdStatus);
+
+                // Detected
+                const tdDetected = document.createElement('td');
+                const date = new Date(user.detected_at);
+                const today = new Date().toDateString();
+                if (date.toDateString() === today) {
+                    tdDetected.innerHTML = '<span class="table-badge table-badge-new">HOY</span>';
+                } else {
+                    tdDetected.textContent = date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
+                }
+                tr.appendChild(tdDetected);
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Search and filter
+        document.getElementById('searchInput').addEventListener('input', applyFilters);
+        document.getElementById('filterAge').addEventListener('change', applyFilters);
+        document.getElementById('filterVerified').addEventListener('change', applyFilters);
+        document.getElementById('filterOnline').addEventListener('change', applyFilters);
+        document.getElementById('filterInterests').addEventListener('change', applyFilters);
+        document.getElementById('filterInstagram').addEventListener('change', applyFilters);
+
+        function applyFilters() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const filterAge = document.getElementById('filterAge').value;
+            const filterVerified = document.getElementById('filterVerified').value;
+            const filterOnline = document.getElementById('filterOnline').value;
+            const filterInterests = document.getElementById('filterInterests').value;
+            const filterInstagram = document.getElementById('filterInstagram').value;
+
+            filteredUsers = allUsers.filter(user => {
+                // Search
+                if (searchTerm) {
+                    const searchString = `${user.name} ${user.age} ${user.city} ${user.country}`.toLowerCase();
+                    if (!searchString.includes(searchTerm)) return false;
+                }
+
+                // Age
+                if (filterAge) {
+                    const age = parseInt(user.age);
+                    if (filterAge === '18-24' && (age < 18 || age > 24)) return false;
+                    if (filterAge === '25-29' && (age < 25 || age > 29)) return false;
+                    if (filterAge === '30-34' && (age < 30 || age > 34)) return false;
+                    if (filterAge === '35-39' && (age < 35 || age > 39)) return false;
+                    if (filterAge === '40+' && age < 40) return false;
+                }
+
+                // Verified
+                if (filterVerified === 'verified' && !user.is_verified) return false;
+                if (filterVerified === 'not-verified' && user.is_verified) return false;
+
+                // Online
+                if (filterOnline === 'online' && !user.online_status) return false;
+                if (filterOnline === 'offline' && user.online_status) return false;
+
+                // Interests
+                if (filterInterests) {
+                    const interests = user.interests ? (typeof user.interests === 'string' ? JSON.parse(user.interests) : user.interests) : [];
+                    if (filterInterests === 'has-interests' && interests.length === 0) return false;
+                    if (filterInterests === 'no-interests' && interests.length > 0) return false;
+                }
+
+                // Instagram
+                if (filterInstagram === 'connected' && !user.instagram_connected) return false;
+                if (filterInstagram === 'not-connected' && user.instagram_connected) return false;
+
+                return true;
+            });
+
+            renderTable();
+        }
+
+        function openModal(user) {
+            const modal = document.getElementById('userModal');
+            document.getElementById('modalPhoto').src = user.photo || '';
+            document.getElementById('modalName').textContent = user.name || 'Desconocido';
+
+            // Badges
+            const badgesDiv = document.getElementById('modalBadges');
+            badgesDiv.innerHTML = '';
+            if (user.is_verified) {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-verified';
+                badge.textContent = '✓ Verificado';
+                badgesDiv.appendChild(badge);
+            }
+            if (user.online_status) {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-online';
+                badge.textContent = '● En línea';
+                badgesDiv.appendChild(badge);
+            }
+            if (user.instagram_connected) {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-instagram';
+                badge.textContent = '📷 Instagram';
+                badgesDiv.appendChild(badge);
+            }
+
+            // Details
+            const detailsDiv = document.getElementById('modalDetails');
+            detailsDiv.innerHTML = `
+                ${user.age ? `<span class="profile-info-item">📅 ${user.age} años</span>` : ''}
+                ${user.city ? `<span class="profile-info-item">📍 ${user.city}${user.country ? ', ' + user.country : ''}</span>` : ''}
+                ${user.distance_short ? `<span class="profile-info-item">📏 ${user.distance_short}</span>` : ''}
+            `;
+
+            // Fields
+            const fieldsDiv = document.getElementById('modalFields');
+            fieldsDiv.innerHTML = '';
+            
+            const fields = [
+                { label: 'Intereses', value: user.interests ? (typeof user.interests === 'string' ? JSON.parse(user.interests) : user.interests).join(', ') : null },
+                { label: 'Educación', value: user.education },
+                { label: 'Altura', value: user.height },
+                { label: 'Política', value: user.politics },
+                { label: 'Religión', value: user.religion },
+                { label: 'Fumar', value: user.smoking },
+                { label: 'Beber', value: user.drinking },
+                { label: 'Ejercicio', value: user.exercise },
+                { label: 'Mascotas', value: user.pets },
+                { label: 'Signo zodiacal', value: user.zodiac },
+                { label: 'Intenciones', value: user.dating_intentions },
+                { label: 'Spotify', value: user.spotify_track }
+            ];
+
+            fields.forEach(field => {
+                if (field.value) {
+                    const fieldDiv = document.createElement('div');
+                    fieldDiv.className = 'profile-field';
+                    fieldDiv.innerHTML = `
+                        <div class="profile-field-label">${field.label}</div>
+                        <div class="profile-field-value">${field.value}</div>
+                    `;
+                    fieldsDiv.appendChild(fieldDiv);
+                }
+            });
+
+            modal.style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('userModal').style.display = 'none';
+        }
+
+        // Close modal on overlay click
+        document.querySelector('.modal-overlay').addEventListener('click', closeModal);
+    </script>
+</body>
+</html>
