@@ -1,0 +1,6 @@
+flask>=3.0.0
+flask-socketio>=5.3.0
+selenium>=4.15.0
+langdetect>=1.0.9
+python-engineio>=4.8.0
+python-socketio>=5.10.0
